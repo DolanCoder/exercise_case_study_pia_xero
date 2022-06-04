@@ -9,8 +9,8 @@ import pandas as pd
 def filter_by_time(df, start_date, end_date):
 
     dff = df[
-        (df["datetime"] > datetime.strptime(start_date, "%Y-%m-%d").date())
-        & (df["datetime"] < datetime.strptime(end_date, "%Y-%m-%d").date())
+        (df["datetime"].dt.date > datetime.strptime(start_date, "%Y-%m-%d").date())
+        & (df["datetime"].dt.date < datetime.strptime(end_date, "%Y-%m-%d").date())
     ]
     return dff
 

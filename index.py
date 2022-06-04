@@ -6,6 +6,7 @@ from dash import html, Input, Output, State
 from dash import dcc, dash_table
 import dash
 import dash_bootstrap_components as dbc
+import dash_daq as daq
 import plotly.graph_objects as go
 import plotly.graph_objects as go
 import plotly.express as px
@@ -150,6 +151,14 @@ app.layout = html.Div(
             [
                 html.H2('Simple and Full BAS Usage'),
                 html.P('Here we look at how the BAS systems are used in terms of frequencies. We simply look at report generation, for now we ignore multiple access, runtime etc.'),
+                html.P('You can also smoothen the plot by looking at weekly activities rather than daily'),
+
+                daq.BooleanSwitch(
+                                id='dailyweeklytoggle',
+                                on=True,
+                                label="Daily/Weekly",
+                                labelPosition="bottom"
+                                ),
                 dcc.Graph(id="usage_graph"),
             ],
             className="pretty_container eight columns",
@@ -168,8 +177,9 @@ app.layout = html.Div(
     Input("date_picker", "start_date"),
     Input("date_picker", "end_date"),
     Input("payment_status", "value"),
+    Input("dailyweeklytoggle","on")
     )
-def update_usage_graph(start_date, end_date, payment_status): 
+def update_usage_graph(start_date, end_date, payment_status, dailyweeklytoggle): 
     
     layout_aggregate = copy.deepcopy(plot_layout)
 
@@ -177,8 +187,13 @@ def update_usage_graph(start_date, end_date, payment_status):
     fullbas_w_org = pd.merge(fullbas, orgdetails, left_on='orgid', right_on='organisationid', how="inner")
     fullbas_w_org = helper.filter_by_payingflag(fullbas_w_org,payment_status)
 
-    simpledf=simplebas.groupby([simplebas['datetime'].dt.date]).size().reset_index(name='count')
-    fulldf = fullbas_w_org.groupby([fullbas_w_org['datetime'].dt.date]).size().reset_index(name='count')
+    if dailyweeklytoggle:
+        simpledf = simplebas.groupby(pd.Grouper(freq='D', key='datetime')).size().reset_index(name='count')
+        fulldf = fullbas_w_org.groupby(pd.Grouper(freq='D', key='datetime')).size().reset_index(name='count')
+    else:
+
+        simpledf = simplebas.groupby(pd.Grouper(freq='W', key='datetime')).size().reset_index(name='count')
+        fulldf = fullbas_w_org.groupby(pd.Grouper(freq='W', key='datetime')).size().reset_index(name='count')
 
     simpledff = helper.filter_by_time(simpledf, start_date, end_date)
     fulldff = helper.filter_by_time(fulldf, start_date, end_date)
