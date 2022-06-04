@@ -155,7 +155,7 @@ app.layout = html.Div(
 
                 daq.BooleanSwitch(
                                 id='dailyweeklytoggle',
-                                on=True,
+                                on=False,
                                 label="Daily/Weekly",
                                 labelPosition="bottom"
                                 ),
@@ -188,12 +188,11 @@ def update_usage_graph(start_date, end_date, payment_status, dailyweeklytoggle):
     fullbas_w_org = helper.filter_by_payingflag(fullbas_w_org,payment_status)
 
     if dailyweeklytoggle:
-        simpledf = simplebas.groupby(pd.Grouper(freq='D', key='datetime')).size().reset_index(name='count')
-        fulldf = fullbas_w_org.groupby(pd.Grouper(freq='D', key='datetime')).size().reset_index(name='count')
-    else:
-
         simpledf = simplebas.groupby(pd.Grouper(freq='W', key='datetime')).size().reset_index(name='count')
         fulldf = fullbas_w_org.groupby(pd.Grouper(freq='W', key='datetime')).size().reset_index(name='count')
+    else:
+        simpledf = simplebas.groupby(pd.Grouper(freq='D', key='datetime')).size().reset_index(name='count')
+        fulldf = fullbas_w_org.groupby(pd.Grouper(freq='D', key='datetime')).size().reset_index(name='count')
 
     simpledff = helper.filter_by_time(simpledf, start_date, end_date)
     fulldff = helper.filter_by_time(fulldf, start_date, end_date)
