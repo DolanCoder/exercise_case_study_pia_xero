@@ -7,7 +7,6 @@ from dash import dcc, dash_table
 import dash
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -15,12 +14,25 @@ from flask import Flask, request,jsonify
 from flask_cors import CORS
 
 from datetime import date,  datetime, timedelta
+import copy
 import pandas as pd
 import numpy as np
 import copy 
 
-from controls import ORGSTATUS, PRODUCTOPTIONS
-# import helper
+# from controls import ORGSTATUS, PRODUCTOPTIONS
+import helper
+
+
+#some minor data wrangling
+orgdetails = pd.read_csv('data/orgcard.csv')
+orgdetails['organisationid'] =orgdetails['organisationid'].str.lower()
+
+fullbas = pd.read_csv('data/fullbas.csv')
+fullbas['datetime'] = fullbas['datestring']+' '+fullbas['timestring']
+fullbas['datetime'] = fullbas['datetime'].astype('datetime64[s]').dt.tz_localize('Australia/Sydney',ambiguous=True)
+
+simplebas = pd.read_csv('data/simplebas.csv')
+simplebas['datetime'] = simplebas['datetime'].astype('datetime64[s]')
 
 
 server = Flask(__name__)
@@ -95,21 +107,22 @@ app.layout = html.Div(
                 html.P("Filter data by date:", className="control_label"),
                 dcc.DatePickerRange(
                     id="date_picker",
+                    start_date = '2016-10-01',
                     end_date=date.today(),
                     display_format='MMM Do, YY',
                     start_date_placeholder_text='MMM Do, YY'
                 ),
-                html.H3("Status", className="control_label"),
-                html.P("Filter organisations by status:", className="control_label"),
-                dcc.Dropdown(
-                    id="org_status",
-                    options=ORGSTATUS,
-                    multi=True,
-                    value=list(ORGSTATUS.keys()),
-                    className="dcc_control",
-                ),
+                # html.H3("Status", className="control_label"),
+                # html.P("Filter organisations by status:", className="control_label"),
+                # dcc.Dropdown(
+                #     id="org_status",
+                #     options=ORGSTATUS,
+                #     multi=True,
+                #     value=list(ORGSTATUS.keys()),
+                #     className="dcc_control",
+                # ),
                 html.H3("Payment Status", className="control_label"),
-                html.P("Filter organisations by payment status:", className="control_label"),
+                html.P("Filter organisations by payment status, note that this only applies to Full BAS, as paymend status information is not available for Simple BAS dataset", className="control_label"),
                 dcc.Checklist(
                     id="payment_status",
                     options={
@@ -118,24 +131,30 @@ app.layout = html.Div(
                     },
                     value=['1']
                     ),
-                html.H3("Product Option", className="control_label"),
-                html.P("Filter to select any organisation with any of the following production options:", className="control_label"),
-                dcc.Dropdown(
-                    id="product_options",
-                    options=PRODUCTOPTIONS,
-                    multi=True,
-                    value=list(PRODUCTOPTIONS.keys()),
-                    className="dcc_control",
-                ),
-
-
+                # html.H3("Product Option", className="control_label"),
+                # html.P("Filter to select any organisation with any of the following production options:", className="control_label"),
+                # dcc.Dropdown(
+                #     id="product_options",
+                #     options=PRODUCTOPTIONS,
+                #     multi=True,
+                #     value=list(PRODUCTOPTIONS.keys()),
+                #     className="dcc_control",
+                # ),
 
             ],
             className="pretty_container four columns",
             id="cross-filter-options"
         ),
         # ContentSection
-
+        html.Div(
+            [
+                html.H2('Simple and Full BAS Usage'),
+                html.P('Here we look at how the BAS systems are used in terms of frequencies. We simply look at report generation, for now we ignore multiple access, runtime etc.'),
+                dcc.Graph(id="usage_graph"),
+            ],
+            className="pretty_container eight columns",
+            id="main-section"
+        ),
          
         ],
         style={"display": "flex", "flexDirection": "row"})
@@ -144,6 +163,69 @@ app.layout = html.Div(
     style={"display": "flex", "flexDirection": "column"},
 )
 
+@app.callback(
+    Output("usage_graph", "figure"), 
+    Input("date_picker", "start_date"),
+    Input("date_picker", "end_date"),
+    Input("payment_status", "value"),
+    )
+def update_usage_graph(start_date, end_date, payment_status): 
+    
+    layout_aggregate = copy.deepcopy(plot_layout)
+
+
+    fullbas_w_org = pd.merge(fullbas, orgdetails, left_on='orgid', right_on='organisationid', how="inner")
+    fullbas_w_org = helper.filter_by_payingflag(fullbas_w_org,payment_status)
+
+    simpledf=simplebas.groupby([simplebas['datetime'].dt.date]).size().reset_index(name='count')
+    fulldf = fullbas_w_org.groupby([fullbas_w_org['datetime'].dt.date]).size().reset_index(name='count')
+
+    simpledff = helper.filter_by_time(simpledf, start_date, end_date)
+    fulldff = helper.filter_by_time(fulldf, start_date, end_date)
+    
+    fig = go.Figure(
+        layout=go.Layout(
+            plot_bgcolor="#F9F9F9",
+            paper_bgcolor="#F9F9F9",
+            legend=dict(font=dict(size=10), orientation="h"),
+            ))
+    fig.add_trace(
+        go.Scatter(
+            x=fulldff['datetime'],
+            y=fulldff['count'],
+            mode='lines',
+            name="Full",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=simpledff['datetime'],
+            y=simpledff['count'],
+            mode='lines',
+            name="Simple",
+        )
+    )
+
+    data = [
+            dict(
+                type="line",
+                name="Full",
+                x=fulldff['datetime'],
+                y=fulldff['count'],
+                line=dict(shape="spline", smoothing=2, width=1, ),
+            ),
+            dict(
+                type="line",
+                name="Simple",
+                x=simpledff['datetime'],
+                y=simpledff['count'],
+                line=dict(shape="spline", smoothing=2, width=1),
+            ),
+            ]
+    fig.update_xaxes(title_text='Date')
+    fig.update_yaxes(title_text='Run Count')
+
+    return fig
 
 if __name__ == '__main__':
     
