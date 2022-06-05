@@ -167,6 +167,11 @@ app.layout = html.Div(
                 html.B('The location of the peak in the below plot shows how often (in days) the pattern repeats'),
                 dcc.Graph(id = 'FFT_graph'),
 
+               
+                html.P('To see the cumulative monthly usage, we can look at the usage month by month'),
+                dcc.Graph(id = 'monthlyusage_graph'),
+
+
                 html.H3('Maintenance window'),
                 html.P('In order to find 2 hour in a month with low usage, we can look at hour usage across days every month'),
                 html.P('Click on the legend to activate/deactive particular days'),
@@ -178,6 +183,36 @@ app.layout = html.Div(
                                 style = {'width': 'fit-content'}
                                 ),
                 dcc.Graph(id = 'maintenacewindow_graph'),
+
+                html.H3('Users & Organisationss'),
+                html.Div(
+                            [
+                                html.Div(
+                                    [html.H6(id="org_both_text", style={'margin':"20px"}), html.P("No. of orgs that ran both reports\u002A")],
+                                    id="org_both",
+                                    className="mini_container",
+                                ),
+                                html.Div(
+                                    [html.H6(id="user_both_text", style={'margin':"20px"}), html.P("No. of users that ran both reports")],
+                                    id="user_both",
+                                    className="mini_container",
+                                ),
+                                html.Div(
+                                    [html.H6(id="user_either_text", style={'margin':"20px"}), html.P("No. of users that ran either reports")],
+                                    id="user_either",
+                                    className="mini_container",
+                                )
+                            ],
+                            id="info-container",
+                            className="row container-display",
+                        ),
+                html.P('\u002A Due to lacking org details in the simple bas dataset, we are assuming the same user ran both BAS system for the same orgnanisation'),
+                dcc.Graph(id = 'userorganisation_graph'),
+
+                html.H3('Popular Pricing Plans'),
+                html.P('Options with less than 50 customers are grouped together under "Other". '),
+                dcc.Graph(id = 'plans_piegraph'),
+
 
 
             ],
@@ -318,9 +353,6 @@ def update_maintenancewindow_graph(start_date, end_date, payment_status, simplef
         figure.update_layout(title='Simple BAS Hourly Usage', title_font_size=20)
         monthly_usage = list(simpledf.groupby(simpledf['datetime'].dt.day)['datetime'])
 
-
-   
-
     for index, item, in enumerate(monthly_usage):
         
         daily = item[1].groupby(item[1].dt.hour).count().reset_index(name='count')
@@ -333,6 +365,109 @@ def update_maintenancewindow_graph(start_date, end_date, payment_status, simplef
 
         
     return figure
+
+
+@app.callback(
+    Output("monthlyusage_graph", "figure"), 
+    Input("date_picker", "start_date"),
+    Input("date_picker", "end_date"),
+    Input("payment_status", "value"),
+    )
+def update_monthlyusage_graph(start_date, end_date, payment_status):
+        
+    fullbas_w_org = pd.merge(fullbas, orgdetails, left_on='orgid', right_on='organisationid', how="inner")
+    fullbas_w_org = helper.filter_by_payingflag(fullbas_w_org,payment_status)
+    fullbas_w_org = helper.filter_by_time(fullbas_w_org, start_date, end_date)
+
+    simpledf = helper.filter_by_time(simplebas, start_date, end_date)
+
+
+    simpledf_monthly = (simpledf.groupby(simpledf['datetime'].dt.month)).size().reset_index(name='count')
+    fulldf_monthly = (fullbas.groupby(fullbas_w_org['datetime'].dt.month)).size().reset_index(name='count')
+
+    figure = go.Figure()
+
+
+    figure.add_trace(
+    go.Scatter(x=fulldf_monthly['datetime'], y = fulldf_monthly['count'], name = 'Full BAS' )
+    )
+    figure.add_trace(
+    go.Scatter(x=simpledf_monthly['datetime'], y = simpledf_monthly['count'], name = 'Simple BAS' )
+    )  
+    figure.update_xaxes(title_text='Month')
+    figure.update_yaxes(title_text='Count')
+
+        
+    return figure
+
+@app.callback(
+    [
+    Output("org_both_text", "children"),
+    Output("user_both_text", "children"),
+    Output("user_either_text", "children"),
+    Output("userorganisation_graph", "figure")
+    ],
+    [ Input("date_picker", "start_date"),
+    Input("date_picker", "end_date"),
+    Input("payment_status", "value")],
+)
+def update_userorg(start_date, end_date, payment_status):
+
+    fullbas_w_org = pd.merge(fullbas, orgdetails, left_on='orgid', right_on='organisationid', how="inner")
+    fullbas_w_org = helper.filter_by_payingflag(fullbas_w_org,payment_status)
+    fullbas_w_org = helper.filter_by_time(fullbas_w_org, start_date, end_date)
+
+    simpledf = helper.filter_by_time(simplebas, start_date, end_date)
+
+
+    inner_res = pd.merge(simpledf, fullbas_w_org, left_on='userid', right_on='userid', how="inner")
+    outer_res = pd.merge(simpledf, fullbas_w_org, left_on='userid', right_on='userid', how="outer")
+
+
+    org_both = len(inner_res[['userid', 'orgid']].drop_duplicates())
+    user_both = len(inner_res[['userid', 'orgid']].drop_duplicates())
+    user_either = len(outer_res[['userid', 'orgid']].drop_duplicates())
+
+    hist = outer_res[['userid', 'orgid']].drop_duplicates().dropna().groupby('userid').size().reset_index(name='count')
+
+    figure = go.Figure(data =[ go.Histogram(x=hist['count'].values)])
+    figure.update_yaxes(type='log', title_text='Count')
+    figure.update_xaxes(title_text='No. of organisation user ran report for in the sample')
+
+
+    return org_both, user_both, user_either, figure
+
+
+# Selectors, main graph -> pie graph
+@app.callback(
+    Output("plans_piegraph", "figure"),
+    [
+    Input("date_picker", "start_date"),
+    Input("date_picker", "end_date")
+    ],
+)
+def make_pie_figure(start_date, end_date):
+    product_pie = orgdetails['productoption'].groupby(orgdetails['productoption']).count().reset_index(name='count')
+    product_pie.loc[product_pie['count']<50, 'productoption'] = 'Other'
+
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=product_pie['productoption'], 
+                values=product_pie['count'], 
+                hole=0.4)
+                ]
+        )
+    fig.update_traces(textposition='inside', textinfo='percent+label')
+
+    return fig
+
+
+
+
+
+
+
 if __name__ == '__main__':
     
     app.run_server(debug=True, port=5000)
