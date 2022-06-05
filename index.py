@@ -2,7 +2,6 @@
 Main file that takes care of the View and Controller component of the dashboard
 '''
 
-from matplotlib.pyplot import title
 from dash import html, Input, Output, State
 from dash import dcc, dash_table
 import dash
