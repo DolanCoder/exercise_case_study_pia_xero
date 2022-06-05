@@ -160,6 +160,12 @@ app.layout = html.Div(
                                 style = {'width': 'fit-content'}
                                 ),
                 dcc.Graph(id="usage_graph"),
+                
+                html.H3('Seasonality'),
+                html.P('We can see the above usage graph is highly periodic. We can extract its period by performing a Fourier Transform on the signal'),
+                html.B('The location of the peak in the below plot shows how often (in days) the pattern repeats'),
+                dcc.Graph(id = 'FFT_graph')
+
             ],
             className="pretty_container eight columns",
             id="main-section"
@@ -181,9 +187,6 @@ app.layout = html.Div(
     )
 def update_usage_graph(start_date, end_date, payment_status, dailyweeklytoggle): 
     
-    layout_aggregate = copy.deepcopy(plot_layout)
-
-
     fullbas_w_org = pd.merge(fullbas, orgdetails, left_on='orgid', right_on='organisationid', how="inner")
     fullbas_w_org = helper.filter_by_payingflag(fullbas_w_org,payment_status)
 
@@ -193,8 +196,6 @@ def update_usage_graph(start_date, end_date, payment_status, dailyweeklytoggle):
     if dailyweeklytoggle:
         simpledf['count'] = simpledf.rolling(window = 7).mean()
         fulldf['count'] = fulldf.rolling(window = 7).mean()
-
-        
 
     simpledff = helper.filter_by_time(simpledf, start_date, end_date)
     fulldff = helper.filter_by_time(fulldf, start_date, end_date)
@@ -221,25 +222,59 @@ def update_usage_graph(start_date, end_date, payment_status, dailyweeklytoggle):
             name="Simple",
         )
     )
-
-    data = [
-            dict(
-                type="line",
-                name="Full",
-                x=fulldff['datetime'],
-                y=fulldff['count'],
-                line=dict(shape="spline", smoothing=2, width=1, ),
-            ),
-            dict(
-                type="line",
-                name="Simple",
-                x=simpledff['datetime'],
-                y=simpledff['count'],
-                line=dict(shape="spline", smoothing=2, width=1),
-            ),
-            ]
     fig.update_xaxes(title_text='Date')
     fig.update_yaxes(title_text='Run Count')
+
+    return fig
+
+
+@app.callback(
+    Output("FFT_graph", "figure"), 
+    Input("date_picker", "start_date"),
+    Input("date_picker", "end_date"),
+    Input("payment_status", "value"),
+    )
+def update_fft_graph(start_date, end_date, payment_status): 
+    
+    fullbas_w_org = pd.merge(fullbas, orgdetails, left_on='orgid', right_on='organisationid', how="inner")
+    fullbas_w_org = helper.filter_by_payingflag(fullbas_w_org,payment_status)
+    fullbas_w_org = helper.filter_by_time(fullbas_w_org, start_date, end_date)
+
+    simpledf = helper.filter_by_time(simplebas, start_date, end_date)
+
+    simpledf = simpledf.groupby(pd.Grouper(freq='D', key='datetime')).size().reset_index(name='count')
+    fulldf = fullbas_w_org.groupby(pd.Grouper(freq='D', key='datetime')).size().reset_index(name='count')
+    
+    simpledf['rolling_mean'] = simpledf.rolling(window = 7).mean()
+    fulldf['rolling_mean'] = fulldf.rolling(window = 7).mean()
+
+    simplebas_fft, simplebas_freq = helper.fft(simpledf['rolling_mean'])
+    fullbas_fft, fullbas_freq = helper.fft(fulldf['rolling_mean'])
+
+    fig = go.Figure(
+        layout=go.Layout(
+            plot_bgcolor="#F9F9F9",
+            paper_bgcolor="#F9F9F9",
+            legend=dict(font=dict(size=10), orientation="h"),
+            ))
+    fig.add_trace(
+        go.Scatter(
+            x=1/fullbas_freq,
+            y=abs(fullbas_fft),
+            mode='lines',
+            name="Full",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=1/simplebas_freq,
+            y=abs(simplebas_fft),
+            mode='lines',
+            name="Simple",
+        )
+    )
+    fig.update_xaxes(title_text='Period measured in days')
+    fig.update_yaxes(title_text='Count')
 
     return fig
 
