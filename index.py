@@ -2,6 +2,7 @@
 Main file that takes care of the View and Controller component of the dashboard
 '''
 
+from matplotlib.pyplot import title
 from dash import html, Input, Output, State
 from dash import dcc, dash_table
 import dash
@@ -29,10 +30,10 @@ orgdetails['organisationid'] =orgdetails['organisationid'].str.lower()
 
 fullbas = pd.read_csv('data/fullbas.csv')
 fullbas['datetime'] = fullbas['datestring']+' '+fullbas['timestring']
-fullbas['datetime'] = fullbas['datetime'].astype('datetime64[s]').dt.tz_localize('Australia/Sydney',ambiguous=True)
+fullbas['datetime'] = fullbas['datetime'].astype('datetime64').dt.tz_localize('GMT').dt.tz_convert('Australia/Sydney')
 
 simplebas = pd.read_csv('data/simplebas.csv')
-simplebas['datetime'] = simplebas['datetime'].astype('datetime64[s]')
+simplebas['datetime'] = simplebas['datetime'].astype('datetime64[s]').dt.tz_localize('GMT').dt.tz_convert('Australia/Sydney')
 
 
 server = Flask(__name__)
@@ -162,9 +163,22 @@ app.layout = html.Div(
                 dcc.Graph(id="usage_graph"),
                 
                 html.H3('Seasonality'),
-                html.P('We can see the above usage graph is highly periodic. We can extract its period by performing a Fourier Transform on the signal'),
+                html.P('We can see the above usage graph is highly periodic. We can extract its period by performing a Fourier Transform on the signal. This works best when there is at least 1 year of data'),
                 html.B('The location of the peak in the below plot shows how often (in days) the pattern repeats'),
-                dcc.Graph(id = 'FFT_graph')
+                dcc.Graph(id = 'FFT_graph'),
+
+                html.H3('Maintenance window'),
+                html.P('In order to find 2 hour in a month with low usage, we can look at hour usage across days every month'),
+                html.P('Click on the legend to activate/deactive particular days'),
+                daq.BooleanSwitch(
+                                id='simplefulltoggle',
+                                on=False,
+                                label="Simple / Full BAS Usage",
+                                labelPosition="bottom",
+                                style = {'width': 'fit-content'}
+                                ),
+                dcc.Graph(id = 'maintenacewindow_graph'),
+
 
             ],
             className="pretty_container eight columns",
@@ -278,6 +292,47 @@ def update_fft_graph(start_date, end_date, payment_status):
 
     return fig
 
+
+@app.callback(
+    Output("maintenacewindow_graph", "figure"), 
+    Input("date_picker", "start_date"),
+    Input("date_picker", "end_date"),
+    Input("payment_status", "value"),
+    Input("simplefulltoggle", "on")
+    )
+def update_maintenancewindow_graph(start_date, end_date, payment_status, simplefulltoggle):
+        
+    fullbas_w_org = pd.merge(fullbas, orgdetails, left_on='orgid', right_on='organisationid', how="inner")
+    fullbas_w_org = helper.filter_by_payingflag(fullbas_w_org,payment_status)
+    fullbas_w_org = helper.filter_by_time(fullbas_w_org, start_date, end_date)
+
+    simpledf = helper.filter_by_time(simplebas, start_date, end_date)
+
+
+    figure = go.Figure()
+
+    if simplefulltoggle:
+        figure.update_layout(title='Full BAS Hourly Usage', title_font_size=20)
+        monthly_usage = list(fullbas.groupby(fullbas_w_org['datetime'].dt.day)['datetime'])
+    else:
+        figure.update_layout(title='Simple BAS Hourly Usage', title_font_size=20)
+        monthly_usage = list(simpledf.groupby(simpledf['datetime'].dt.day)['datetime'])
+
+
+   
+
+    for index, item, in enumerate(monthly_usage):
+        
+        daily = item[1].groupby(item[1].dt.hour).count().reset_index(name='count')
+        figure.add_trace(
+        go.Scatter(x=daily['datetime'], y = daily['count'], name = 'Day %s' % (index+1))
+        )
+    
+    figure.update_xaxes(title_text='Time (UTC+11 Time Zone)')
+    figure.update_yaxes(title_text='Count')
+
+        
+    return figure
 if __name__ == '__main__':
     
     app.run_server(debug=True, port=5000)
